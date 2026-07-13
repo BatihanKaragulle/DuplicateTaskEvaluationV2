@@ -1,0 +1,12 @@
+pyproject.toml
+duptool/__init__.py
+duptool/clean.py
+duptool/ingest.py
+duptool/models.py
+duptool.egg-info/PKG-INFO
+duptool.egg-info/SOURCES.txt
+duptool.egg-info/dependency_links.txt
+duptool.egg-info/requires.txt
+duptool.egg-info/top_level.txt
+tests/test_clean.py
+tests/test_ingest.py

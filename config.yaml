@@ -1,0 +1,17 @@
+# All tunables for duptool live in this file. Changing a value must never
+# require touching Python code.
+#
+# Validated against duptool/models.py::Settings. Unknown or misspelled keys
+# are REJECTED at load time (catches typos before they silently do nothing).
+config_version: 1
+
+ingest:
+  # ADO CSV exports are typically UTF-8 with a BOM; utf-8-sig handles both
+  # plain UTF-8 and BOM-prefixed files.
+  encoding: utf-8-sig
+  # Map duptool's ticket fields to the CSV's column headers. Exports change;
+  # when the column names change, fix them here, not in code.
+  columns:
+    id: "ID"
+    title: "Title"
+    description: "Description"
