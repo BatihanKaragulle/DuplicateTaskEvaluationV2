@@ -13,7 +13,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from duptool.models import IngestIssue, IngestResult, IngestSettings, Ticket
+from duptool.models import (
+    IngestIssue,
+    IngestResult,
+    IngestSettings,
+    LabelledPair,
+    Ticket,
+)
 
 
 def load_tickets(csv_path: str | Path, settings: IngestSettings) -> IngestResult:
@@ -78,3 +84,39 @@ def load_tickets(csv_path: str | Path, settings: IngestSettings) -> IngestResult
         tickets.append(Ticket(id=ticket_id, title=title, description=description))
 
     return IngestResult(tickets=tickets, issues=issues)
+
+
+def load_labelled_pairs(csv_path: str | Path) -> list[LabelledPair]:
+    """Read the labelled pair file (ticket_a,ticket_b,relationship).
+
+    Strict on purpose: a bad label or duplicated pair RAISES instead of
+    being skipped -- these labels referee all tuning, and silently skewed
+    metrics are worse than a crash.
+    """
+    df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
+    missing = [c for c in ("ticket_a", "ticket_b", "relationship") if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"labels CSV is missing column(s) {missing}. "
+            f"Found columns: {list(df.columns)}."
+        )
+
+    pairs: list[LabelledPair] = []
+    seen: set[frozenset[str]] = set()
+    for pos, row in df.iterrows():
+        row_num = pos + 2
+        a, b = row["ticket_a"].strip(), row["ticket_b"].strip()
+        rel = row["relationship"].strip().lower()
+        if not a or not b or a == b:
+            raise ValueError(f"labels row {row_num}: needs two different ticket IDs")
+        if rel not in ("duplicate", "related", "unrelated"):
+            raise ValueError(
+                f"labels row {row_num}: relationship {rel!r} is not one of "
+                "duplicate/related/unrelated"
+            )
+        key = frozenset((a, b))
+        if key in seen:
+            raise ValueError(f"labels row {row_num}: pair {a},{b} appears more than once")
+        seen.add(key)
+        pairs.append(LabelledPair(ticket_a=a, ticket_b=b, relationship=rel))
+    return pairs

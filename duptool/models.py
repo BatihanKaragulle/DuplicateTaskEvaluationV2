@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class Ticket(BaseModel):
@@ -119,6 +119,50 @@ class TicketSignals(BaseModel):
     extractors_used: list[str]  # ["template", "generic"] or ["generic"]
 
 
+# --- Candidates (step 4) ------------------------------------------------------
+
+
+class CandidatePair(BaseModel):
+    """An unordered ticket pair selected for scoring. MVP selects all pairs;
+    blocking strategies would thin this list without touching scoring."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ticket_a: str
+    ticket_b: str
+
+
+# --- Scoring (step 3) --------------------------------------------------------
+
+Band = Literal["possible_duplicate", "possibly_related", "not_shown"]
+
+
+class SubScore(BaseModel):
+    """One signal's contribution to a pair's score, with its evidence.
+
+    score=None means the signal was SKIPPED (not enough data on one or both
+    sides): its weight drops out and the remaining weights renormalize. A
+    missing optional field must never punish a pair -- only a 0.0 (both
+    sides have the signal and it disagrees) is negative evidence.
+    """
+
+    name: str
+    score: float | None
+    weight: float  # configured weight, before renormalization
+    evidence: list[str]
+
+
+class ScoredPair(BaseModel):
+    ticket_a: str
+    ticket_b: str
+    final_score: float
+    band: Band
+    # True when the shared-item hard rule forced this pair to be surfaced
+    # even though the blended score alone would have hidden it
+    hard_override: bool
+    subscores: list[SubScore]
+
+
 # --- Settings ---------------------------------------------------------------
 # One section per pipeline stage; grows as stages are built. All tunables
 # enter the program through these models — no magic numbers in code.
@@ -213,10 +257,107 @@ class SignalsSettings(_StrictModel):
     step_patterns: list[str]  # capture group = the step number
 
 
+class WeightSettings(_StrictModel):
+    """Relative signal weights. They need not sum to 1: the final score is
+    always renormalized over the signals that actually fired for a pair."""
+
+    id_overlap: float
+    layer_method: float
+    task_type: float
+    steps: float
+    lexical: float
+
+
+class IdOverlapScoring(_StrictModel):
+    # any shared item starts at `base`; the rest scales with the overlap
+    # ratio, so identical ref sets reach 1.0
+    base: float
+
+
+class TaskTypeScoring(_StrictModel):
+    same_type: float
+    cross_type: float  # types are soft context: cross-type is partial, never 0
+
+
+class LayerMethodScoring(_StrictModel):
+    # per-pool credit: exact identifier match > quoted-token > step text
+    method_weight: float
+    quoted_weight: float
+    bdd_weight: float
+
+
+class LexicalScoring(_StrictModel):
+    k1: float  # BM25 term-frequency saturation
+    b: float   # BM25 length normalization
+
+
+class BandSettings(_StrictModel):
+    possible_duplicate: float
+    possibly_related: float
+
+    @model_validator(mode="after")
+    def _bands_ordered(self) -> "BandSettings":
+        if self.possible_duplicate < self.possibly_related:
+            raise ValueError("possible_duplicate threshold must be >= possibly_related")
+        return self
+
+
+class ScoringSettings(_StrictModel):
+    weights: WeightSettings
+    id_overlap: IdOverlapScoring
+    task_type: TaskTypeScoring
+    layer_method: LayerMethodScoring
+    lexical: LexicalScoring
+    bands: BandSettings
+
+
+# --- Evaluation (step 5) -------------------------------------------------------
+
+Relationship = Literal["duplicate", "related", "unrelated"]
+
+
+class LabelledPair(BaseModel):
+    """One human-labelled ticket pair -- the ground truth for eval.
+
+    The labelled set referees ALL weight/threshold tuning: thresholds are
+    never adjusted by feel, only against these labels.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ticket_a: str
+    ticket_b: str
+    relationship: Relationship
+
+
+class EvalMetrics(BaseModel):
+    """duptool eval results. Ratio fields are None when their denominator
+    is empty (no data is not the same as a perfect or zero score)."""
+
+    total_labelled: int
+    used: int
+    skipped_missing_ticket: int
+    # predicted band -> true label -> count
+    matrix: dict[str, dict[str, int]]
+    duplicate_precision: float | None   # PRIMARY: precision of possible_duplicate
+    duplicate_recall: float | None
+    top3_accuracy: float | None
+    unrelated_flagged_duplicate: float | None
+    unrelated_surfaced: float | None
+
+
+class ReportSettings(_StrictModel):
+    # per-ticket summary shows at most this many candidates (precision over
+    # recall: few strong suggestions beat many weak ones)
+    top_k_per_ticket: int
+
+
 class Settings(_StrictModel):
     config_version: int
     ingest: IngestSettings
     signals: SignalsSettings
+    scoring: ScoringSettings
+    report: ReportSettings
 
 
 def load_settings(path: str | Path) -> Settings:

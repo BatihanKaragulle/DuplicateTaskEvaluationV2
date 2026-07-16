@@ -150,3 +150,47 @@ signals:
   # "step 3", "Step #12", "test step 4"
   step_patterns:
     - '(?i)\b(?:test\s+)?steps?\s*[#:]?\s*(\d{1,4})\b'
+
+scoring:
+  # Relative signal weights. They need not sum to 1: for every pair the
+  # final score renormalizes over the signals that actually fired, so a
+  # skipped signal (missing data) never punishes a pair.
+  weights:
+    id_overlap: 0.45     # dominant on purpose -- shared items are THE signal
+    layer_method: 0.15
+    task_type: 0.05      # soft context only (owner rule), lowest weight
+    steps: 0.10
+    lexical: 0.25
+
+  id_overlap:
+    # any shared item starts here; the remaining 0.4 scales with the
+    # overlap ratio so identical ref sets reach 1.0
+    base: 0.6
+
+  task_type:
+    same_type: 1.0
+    cross_type: 0.35     # partial credit, never 0 -- types are not separators
+
+  layer_method:
+    # per-pool credit: exact identifier match > quoted-token > BDD step text
+    method_weight: 1.0
+    quoted_weight: 0.9
+    bdd_weight: 0.7
+
+  lexical:
+    # hand-rolled Okapi BM25 over title + body text
+    k1: 1.2              # term-frequency saturation
+    b: 0.75              # document-length normalization
+
+  # Classification bands on the final blended score. Deliberately high
+  # defaults (precision over recall). Tune ONLY against labelled pairs via
+  # `duptool eval`, never by feel. The shared-item hard rule surfaces a
+  # pair as at least possibly_related regardless of these thresholds.
+  bands:
+    possible_duplicate: 0.80
+    possibly_related: 0.55
+
+report:
+  # Per-ticket summary shows at most this many candidates. Few, strong,
+  # well-explained suggestions beat many weak ones -- user trust is fragile.
+  top_k_per_ticket: 5

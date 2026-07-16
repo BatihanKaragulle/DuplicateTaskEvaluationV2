@@ -1,0 +1,4 @@
+ticket_a,ticket_b,relationship
+TASK-101,TASK-102,duplicate
+TASK-101,TASK-103,unrelated
+TASK-102,TASK-103,unrelated
