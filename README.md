@@ -9,9 +9,10 @@ calls of any kind** — see [CLAUDE.md](CLAUDE.md) for the full design rules.
 
 ## Status
 
-Under construction, step 1 of the development order: data models, CSV
-ingest, and text cleaning. No CLI yet — the `run` / `eval` commands arrive
-in later steps.
+Under construction, step 2 of the development order: signal extraction
+(TMS/TRQ references, template sections, task type, BDD/method parsing) is
+built and awaiting validation against real tickets. No CLI yet — the
+`run` / `eval` commands arrive in later steps.
 
 ## Install (development)
 

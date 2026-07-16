@@ -35,7 +35,10 @@ The tool **only produces results**. It never writes back to ADO, never merges, l
 ### Task types
 - **Implementation Task** — adds new test steps or creates new test cases.
 - **Refactor Task** — updates existing test cases (TMS).
-- Classify each ticket as `implementation | refactor | unknown` from title/description keywords (keyword lists in config). Never guess with high confidence — `unknown` is an acceptable output.
+- **Investigation Task** — analysis/verification work ("check if step X is still needed", "look into ...").
+- Titles often begin with an explicit header like `[Implementation]`, `[Refactor]`, `[Investigation]` — when present this is the strongest type signal (header aliases in config). Keyword classification is the fallback.
+- Classify each ticket as `implementation | refactor | investigation | unknown` from the title header first, then title/description keywords (lists in config). Never guess with high confidence — `unknown` is an acceptable output. Record which route classified it.
+- **Task types are soft context, not separators** (owner, 2026-07-15): an Investigation ticket can still duplicate or relate to a Refactor or Implementation ticket, and vice versa. Scoring treats type as weak evidence — same type adds a little confidence, cross-type gets mild partial credit, and type must never exclude a pair.
 - Two tickets of the same type touching the same TMS/TRQ are the strongest duplicate signal. Cross-type pairs touching the same TMS are more likely **related** than duplicate (e.g. an implementation task and a refactor task on the same test case).
 
 ### Identifiers — the highest-value signal

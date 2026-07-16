@@ -3,7 +3,7 @@
 #
 # Validated against duptool/models.py::Settings. Unknown or misspelled keys
 # are REJECTED at load time (catches typos before they silently do nothing).
-config_version: 1
+config_version: 2
 
 ingest:
   # ADO CSV exports are typically UTF-8 with a BOM; utf-8-sig handles both
@@ -15,3 +15,138 @@ ingest:
     id: "ID"
     title: "Title"
     description: "Description"
+
+signals:
+  # --- Tracker item references (the highest-value signal) -------------------
+  # The tracker assigns ONE global number per item; TMS and TRQ share the id
+  # space and links all look like https://.../cb/issue/{number}. Matching is
+  # therefore by NUMBER; the kind (tms/trq) is evidence metadata. Patterns
+  # validated against 10 real tickets on 2026-07-15.
+  ids:
+    kinds:
+      tms:
+        text_patterns:
+          # TMS-48213, TMS 48213, tms48213, TMS_48213, tms:48213, TMS - 48213
+          - '(?i)\btms[\s\-_:#\.]*(\d{1,8})\b'
+        url_patterns:
+          # URLs that name the kind themselves (rare; most links are shared shape)
+          - '(?i)tms[^\s<>]*[/=](\d{1,8})\b'
+        section_labels:
+          - "affected tms ids"
+          - "affected tms id"
+          - "affected tms"
+          - "tms ids"
+          - "tms id"
+          - "tms"
+      trq:
+        text_patterns:
+          - '(?i)\btrq[\s\-_:#\.]*(\d{1,8})\b'
+        url_patterns:
+          - '(?i)trq[^\s<>]*[/=](\d{1,8})\b'
+        section_labels:
+          - "affected trqs"
+          - "affected trq ids"
+          - "affected trq"
+          - "trq ids"
+          - "trqs"
+          - "trq"
+
+    # 99% of pasted links look like https://.../cb/issue/{number} regardless
+    # of kind. Inside a TMS/TRQ section the section supplies the kind;
+    # anywhere else the ref is kept with kind "unknown" (still matchable).
+    shared_url_patterns:
+      - '(?i)/cb/issue/(\d{1,8})\b'
+
+    # Inside an ID section, lines that START with a number or a table pipe
+    # are ID rows ("1312312 | covered | ..."); harvest their standalone
+    # numbers. Prose lines inside sections are never harvested, so
+    # "verify version 0.36" can't produce a false ID.
+    section_number_pattern: '\b(\d{5,8})\b'
+
+    # Unlabeled ID dumps anywhere ("days: 1325121 4353414 8532578"): nearly
+    # all real TMS/TRQ numbers are 7 digits, so a line containing 2+
+    # standalone 7-digit numbers is treated as an ID list (kind unknown).
+    # A single bare number is never extracted.
+    unlabeled_run_pattern: '\b(\d{7})\b'
+    unlabeled_run_min_count: 2
+
+    # A section line starting with one of these words refers to something
+    # else ("bug: https://.../cb/issue/123" inside the TRQs section) -- its
+    # refs are kept but with kind "unknown".
+    neutral_line_labels:
+      - "bug"
+      - "issue"
+      - "defect"
+      - "note"
+      - "see"
+      - "investigation"
+
+  # --- Template section labels ----------------------------------------------
+  # Matched case-insensitively, tolerant of punctuation/markdown around the
+  # words. ID section labels live under ids.kinds.<kind>.section_labels.
+  template_labels:
+    what_needs_to_be_done:
+      - "what needs to be done"
+      - "what should be done"
+    affected_layer_method:
+      - "affected layer and method"
+      - "affected layers and methods"
+      - "affected layer method"
+
+  # --- Task-type classification ----------------------------------------------
+  # Route 1: an explicit header at the START of the title ("[Refactor] fix
+  # login", "(Investigation) menu") -- strongest signal when present.
+  # Route 2: lowercase substring vote on title + body; only an unambiguous
+  # vote (exactly one type hits) classifies. Otherwise -> "unknown".
+  # NOTE: task types are soft context, never separators -- an Investigation
+  # ticket can still duplicate a Refactor ticket. Scoring must treat type
+  # as weak evidence only.
+  task_type:
+    title_headers:
+      implementation:
+        - "implementation"
+        - "impl"
+      refactor:
+        - "refactor"
+        - "refactoring"
+      investigation:
+        - "investigation"
+        - "investigate"
+        - "analysis"
+    keywords:
+      implementation:
+        - "implement"
+        - "add step"
+        - "add test"
+        - "new test"
+        - "create test"
+        - "create new"
+        - "add coverage"
+        - "extend the step"
+        - "enhance step"
+      refactor:
+        - "refactor"
+        - "update"
+        - "rework"
+        - "modify"
+        - "adjust"
+        - "rename"
+        - "fix test"
+        - "obsolete"
+        - "remove extra steps"
+      investigation:
+        - "investigate"
+        - "investigation"
+        - "check if"
+        - "check whether"
+        - "look into"
+        - "find out"
+        - "analyse"
+        - "analyze"
+        - "still needed"
+        - "still need"
+
+  # --- Mentioned test steps ----------------------------------------------------
+  # "step 3", "Step #12", "test step 4"
+  step_patterns:
+    - '(?i)\b(?:test\s+)?steps?\s*[#:]?\s*(\d{1,4})\b'
