@@ -1,0 +1,17 @@
+# Convenience snapshot of the tested environment (Python 3.13).
+# pyproject.toml is the source of truth for dependencies; this file pins
+# the exact versions the test suite currently runs against.
+#
+#   pip install -r requirements.txt
+#   pip install -e .            (installs duptool itself, no deps re-resolved)
+#
+# NOTE: sentence-transformers/torch (the optional [semantic] extra) are
+# deliberately NOT listed -- the core tool must run without them.
+
+pandas==3.0.3
+pydantic==2.13.4
+PyYAML==6.0.3
+scikit-learn==1.9.0
+
+# development / tests
+pytest==9.1.1

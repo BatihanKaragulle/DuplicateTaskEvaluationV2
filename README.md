@@ -25,6 +25,9 @@ py -3.13 -m venv .venv
 pip install -e .[dev]
 ```
 
+Alternatively, [requirements.txt](requirements.txt) pins the exact tested
+versions: `pip install -r requirements.txt` followed by `pip install -e .`
+
 ## Run
 
 ```powershell
