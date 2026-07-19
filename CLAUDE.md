@@ -130,6 +130,8 @@ load CSV → clean/normalize → extract signals per ticket → pairwise candida
 
    Plus the shared-ID hard override from Domain Knowledge. Weights renormalize automatically over enabled signals. Classification bands (config): `possible_duplicate`, `possibly_related`, `not_shown`.
 
+   **Structural gate (owner, 2026-07-19):** text similarity and task type are supporting evidence only — a pair may be surfaced only when at least one structural signal (shared items, shared identifiers/tokens, shared steps) agrees. Blank and copy-pasted template tickets otherwise produce meaningless perfect text matches ("text similarity 1.00" on unfilled templates). Bodies below a minimum token count are excluded from lexical scoring entirely; identical-after-cleaning texts carry an explicit copy-paste warning in their evidence. Config: `scoring.require_structural_evidence`, `scoring.lexical.min_tokens`.
+
    **Optional local-embedding signal** (`semantic.enabled: false` by default):
    - Purpose: catch paraphrase duplicates with no shared IDs — mainly among old freeform tickets. Secondary to ID/structured signals; do not expect it to carry the score.
    - **Strictly offline**: a local `sentence-transformers` model whose files are downloaded **once, manually, out-of-band** and pointed to via a config path. Load with local-files-only mode; the tool must fail loudly (not download) if files are missing. No hosted/online embedding API, ever — non-negotiable.

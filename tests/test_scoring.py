@@ -170,11 +170,19 @@ def test_no_step_mentions_is_neutral():
 
 # --- lexical (BM25) --------------------------------------------------------------------
 
+# bodies for lexical tests must clear scoring.lexical.min_tokens (15)
+BODY_A = ("update the barcode layout table checks so the printing flow keeps "
+          "working after the service change window")
+BODY_B = ("the barcode layout table needs updated checks because the printing "
+          "flow changed with the new service release")
+BODY_C = ("investigate login timeout on slow networks and collect traces from "
+          "the gateway machines during the night run")
+
 
 def test_similar_texts_score_higher_than_dissimilar():
-    a = make_signals("A", body="update the barcode layout table checks")
-    b = make_signals("B", body="the barcode layout table needs updated checks")
-    c = make_signals("C", body="investigate login timeout on slow networks")
+    a = make_signals("A", body=BODY_A)
+    b = make_signals("B", body=BODY_B)
+    c = make_signals("C", body=BODY_C)
     idx = index_for(a, b, c)
     sim_ab, _ = idx.similarity("A", "B")
     sim_ac, _ = idx.similarity("A", "C")
@@ -182,24 +190,40 @@ def test_similar_texts_score_higher_than_dissimilar():
 
 
 def test_lexical_is_neutral_when_text_is_empty():
-    a = make_signals("A", body="some text here")
+    a = make_signals("A", body=BODY_A)
     b = make_signals("B")  # no title, no body
     idx = index_for(a, b)
     assert idx.similarity("A", "B") is None
 
 
+def test_lexical_is_neutral_when_text_is_too_short():
+    # blank tickets / bare template skeletons must not judge similarity
+    a = make_signals("A", body="What needs to be done? Affected TMS IDs")
+    b = make_signals("B", body="What needs to be done? Affected TMS IDs")
+    idx = index_for(a, b)
+    assert idx.similarity("A", "B") is None
+
+
 def test_identical_texts_score_close_to_one():
-    a = make_signals("A", body="update the barcode layout table")
-    b = make_signals("B", body="update the barcode layout table")
+    a = make_signals("A", body=BODY_A)
+    b = make_signals("B", body=BODY_A)
     idx = index_for(a, b)
     sim, _ = idx.similarity("A", "B")
     assert sim > 0.99
 
 
+def test_identical_texts_warn_about_copy_paste():
+    a = make_signals("A", body=BODY_A)
+    b = make_signals("B", body=BODY_A)
+    _, evidence = index_for(a, b).similarity("A", "B")
+    assert any("identical after cleaning" in e for e in evidence)
+
+
 def test_evidence_names_the_rarest_shared_words():
-    a = make_signals("A", body="update the barcode layout table checks")
-    b = make_signals("B", body="new barcode layout column added")
-    c = make_signals("C", body="update the login checks")
+    a = make_signals("A", body=BODY_A)
+    b = make_signals("B", body="new barcode layout column added for the operator "
+                               "so the table view shows the printing state")
+    c = make_signals("C", body=BODY_C)
     idx = index_for(a, b, c)
     _, evidence = idx.similarity("A", "B")
     assert "barcode" in evidence[0]
@@ -217,19 +241,56 @@ def test_pure_numbers_do_not_inflate_text_similarity():
 
 def test_weights_renormalize_over_active_signals():
     # Only lexical can fire for this pair -> final == lexical subscore.
-    a = make_signals("A", body="update the barcode layout table")
-    b = make_signals("B", body="update the barcode layout table")
+    a = make_signals("A", body=BODY_A)
+    b = make_signals("B", body=BODY_A)
     pair = score_pair(a, b, SCORING, index_for(a, b))
     lexical = next(s for s in pair.subscores if s.name == "lexical")
     assert abs(pair.final_score - round(lexical.score, 4)) < 1e-9
 
 
 def test_skipped_signals_are_reported_not_hidden():
-    a = make_signals("A", body="some text")
-    b = make_signals("B", body="other words entirely")
+    a = make_signals("A", body=BODY_A)
+    b = make_signals("B", body=BODY_C)
     pair = score_pair(a, b, SCORING, index_for(a, b))
     skipped = {s.name for s in pair.subscores if s.score is None}
     assert skipped == {"id_overlap", "layer_method", "task_type", "steps"}
+
+
+# --- structural gate (owner rule 2026-07-19) ---------------------------------------
+
+
+def test_text_similarity_alone_cannot_surface_a_pair():
+    # identical long texts, nothing structural: without the gate this pair
+    # would renormalize to final score 1.0 -- the blank-template trap
+    a = make_signals("A", body=BODY_A)
+    b = make_signals("B", body=BODY_A)
+    pair = score_pair(a, b, SCORING, index_for(a, b))
+    assert pair.final_score > 0.9          # the score itself IS high...
+    assert pair.band == "not_shown"        # ...but the gate hides the pair
+    lexical = next(s for s in pair.subscores if s.name == "lexical")
+    assert any("hidden:" in e for e in lexical.evidence)
+
+
+def test_text_plus_type_alone_cannot_surface_a_pair():
+    a = make_signals("A", body=BODY_A, task_type="refactor", type_source="keywords")
+    b = make_signals("B", body=BODY_A, task_type="refactor", type_source="title_header")
+    pair = score_pair(a, b, SCORING, index_for(a, b))
+    assert pair.band == "not_shown"
+
+
+def test_structural_evidence_lifts_the_gate():
+    a = make_signals("A", body=BODY_A, methods=("standardize_function",))
+    b = make_signals("B", body=BODY_A, methods=("standardize_function",))
+    pair = score_pair(a, b, SCORING, index_for(a, b))
+    assert pair.band != "not_shown"        # shared method = structural evidence
+
+
+def test_disjoint_ids_with_identical_text_stay_hidden():
+    # classic copy-paste: same template text, different item references
+    a = make_signals("A", refs=(("1111111", "tms", "text"),), body=BODY_A)
+    b = make_signals("B", refs=(("2222222", "tms", "text"),), body=BODY_A)
+    pair = score_pair(a, b, SCORING, index_for(a, b))
+    assert pair.band == "not_shown"
 
 
 def test_hard_override_surfaces_low_scoring_shared_item_pair():

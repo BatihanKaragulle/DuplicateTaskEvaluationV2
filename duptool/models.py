@@ -289,6 +289,9 @@ class LayerMethodScoring(_StrictModel):
 class LexicalScoring(_StrictModel):
     k1: float  # BM25 term-frequency saturation
     b: float   # BM25 length normalization
+    # bodies with fewer tokens than this cannot judge similarity: blank or
+    # template-skeleton tickets otherwise match each other at 1.00
+    min_tokens: int
 
 
 class BandSettings(_StrictModel):
@@ -309,6 +312,11 @@ class ScoringSettings(_StrictModel):
     layer_method: LayerMethodScoring
     lexical: LexicalScoring
     bands: BandSettings
+    # When True (owner rule, 2026-07-19): text similarity and task type are
+    # supporting evidence only -- a pair is surfaced ONLY when a structural
+    # signal (shared items, identifiers, or steps) agrees. Blank/copy-pasted
+    # template tickets otherwise produce meaningless 1.00 text matches.
+    require_structural_evidence: bool
 
 
 # --- Evaluation (step 5) -------------------------------------------------------

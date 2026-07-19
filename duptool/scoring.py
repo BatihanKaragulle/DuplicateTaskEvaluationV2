@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 
 from duptool.models import (
     Band,
@@ -157,6 +158,7 @@ class LexicalIndex:
 
     def __init__(self, all_signals: list[TicketSignals], cfg: LexicalScoring) -> None:
         self._k1, self._b = cfg.k1, cfg.b
+        self._min_tokens = cfg.min_tokens
         self._tokens: dict[str, list[str]] = {
             s.ticket_id: _tokenize(s.clean_title + "\n" + s.body_text)
             for s in all_signals
@@ -190,22 +192,41 @@ class LexicalIndex:
     def similarity(self, id_a: str, id_b: str) -> tuple[float, list[str]] | None:
         ta = self._tokens.get(id_a, [])
         tb = self._tokens.get(id_b, [])
-        if not ta or not tb:
-            return None  # empty text cannot judge -- neutral, not negative
+        # too little text cannot judge -- neutral, not negative. Blank
+        # tickets and bare template skeletons would otherwise "match"
+        # each other at 1.00 (owner feedback, 2026-07-19).
+        if len(ta) < self._min_tokens or len(tb) < self._min_tokens:
+            return None
         self_score = self._bm25(ta, ta) + self._bm25(tb, tb)
         if self_score == 0.0:
             return None
         sim = (self._bm25(ta, tb) + self._bm25(tb, ta)) / self_score
         sim = max(0.0, min(1.0, sim))
-        # rarest shared words are the ones a human would point at
-        shared = sorted(set(ta) & set(tb), key=lambda t: -self._idf.get(t, 0.0))
+        # rarest shared words are the ones a human would point at; the
+        # alphabetical tie-break keeps evidence deterministic across runs
+        # (set order would vary with hash randomization)
+        shared = sorted(set(ta) & set(tb), key=lambda t: (-self._idf.get(t, 0.0), t))
         note = f"text similarity {sim:.2f}"
         if shared:
             note += " (top shared words: " + ", ".join(shared[:4]) + ")"
-        return sim, [note]
+        evidence = [note]
+        if Counter(ta) == Counter(tb):
+            # a perfect text match usually means a copy-pasted or unfilled
+            # template, not the same work -- say so instead of implying strength
+            evidence.append(
+                "warning: texts are identical after cleaning - possibly a "
+                "copy-pasted or blank template; structural signals must confirm"
+            )
+        return sim, evidence
 
 
 # --- final score, hard override, banding ---------------------------------------------
+
+# The DEFINITION of "structural evidence" -- the signals grounded in
+# extracted structure rather than raw text. This is a semantic boundary,
+# not a tunable, so it lives here and not in config (the config flag
+# require_structural_evidence turns the gate on/off).
+_STRUCTURAL_SIGNALS = ("id_overlap", "layer_method", "steps")
 
 
 def band_for(score: float, bands: BandSettings) -> Band:
@@ -255,6 +276,27 @@ def score_pair(
         band = "possibly_related"
         subscores[0].evidence.append(
             "hard rule: pairs sharing an item are always surfaced"
+        )
+
+    # Structural gate (owner rule, 2026-07-19): text similarity and task
+    # type alone must never surface a pair -- blank or copy-pasted template
+    # tickets match each other perfectly without being related. At least
+    # one structural signal has to agree. The hard rule above is itself
+    # structural, so it is naturally exempt.
+    if (
+        settings.require_structural_evidence
+        and band != "not_shown"
+        and not hard_override
+        and not any(
+            result is not None and result[0] > 0.0
+            for name, _, result in results
+            if name in _STRUCTURAL_SIGNALS
+        )
+    ):
+        band = "not_shown"
+        subscores[-1].evidence.append(
+            "hidden: text/type similarity alone cannot surface a pair "
+            "(no shared items, identifiers, or steps)"
         )
 
     return ScoredPair(

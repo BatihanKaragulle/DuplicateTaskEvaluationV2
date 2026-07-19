@@ -168,7 +168,8 @@ silently fall back to a default.
 | `scoring.id_overlap.base` | floor score for any shared item (0.6) |
 | `scoring.task_type` | same-type (1.0) and cross-type (0.35) credit |
 | `scoring.layer_method` | per-pool credit: methods > quoted tokens > BDD text |
-| `scoring.lexical` | BM25 k1 / b |
+| `scoring.lexical` | BM25 k1 / b; `min_tokens` -- shorter bodies cannot judge similarity (blank/template tickets) |
+| `scoring.require_structural_evidence` | when true, text/type similarity alone never surfaces a pair -- a structural signal (items, identifiers, steps) must agree |
 | `scoring.bands` | possible_duplicate (0.80) / possibly_related (0.55) thresholds |
 | `report.top_k_per_ticket` | max candidates listed per ticket in summary.txt |
 
@@ -373,6 +374,17 @@ disagrees. A ticket is never punished for not filling an optional field.
   clamped to [0,1]. Tokens are words only -- pure digit tokens are item
   numbers, already counted by id_overlap, and must not double-count.
   Evidence includes the rarest shared words (what a human would point at).
+  Two guards against the blank/copy-pasted-template trap (owner feedback,
+  2026-07-19): bodies shorter than `min_tokens` return None (too little
+  text to judge), and textually identical pairs get an explicit warning
+  in their evidence instead of a proud 1.00.
+- **Structural gate** (`require_structural_evidence`) -- text similarity
+  and task type are supporting evidence only. A pair whose band would be
+  shown is demoted to not_shown unless at least one STRUCTURAL signal
+  (id_overlap, layer_method, steps -- defined by `_STRUCTURAL_SIGNALS`)
+  fired with a positive score. The shared-item hard rule is itself
+  structural and therefore exempt. This kills the classic false positive:
+  two unfilled template tickets with identical text and nothing else.
 - `band_for(score, bands)` -- threshold banding from config.
 - `score_pair(a, b, settings, lexical)` -- runs all five, renormalizes
   weights over the fired ones, applies the **hard rule**: a pair sharing

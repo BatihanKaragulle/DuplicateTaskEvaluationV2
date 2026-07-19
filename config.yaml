@@ -155,12 +155,15 @@ scoring:
   # Relative signal weights. They need not sum to 1: for every pair the
   # final score renormalizes over the signals that actually fired, so a
   # skipped signal (missing data) never punishes a pair.
+  # Owner feedback (2026-07-19): the golden signals are structural --
+  # shared items, shared methods/identifiers, shared BDD steps. Text
+  # similarity is support only (blank/copy-pasted templates make it lie).
   weights:
     id_overlap: 0.45     # dominant on purpose -- shared items are THE signal
-    layer_method: 0.15
+    layer_method: 0.20   # methods/quoted tokens/BDD steps -- golden
     task_type: 0.05      # soft context only (owner rule), lowest weight
     steps: 0.10
-    lexical: 0.25
+    lexical: 0.15        # supporting evidence only, see require_structural_evidence
 
   id_overlap:
     # any shared item starts here; the remaining 0.4 scales with the
@@ -181,6 +184,16 @@ scoring:
     # hand-rolled Okapi BM25 over title + body text
     k1: 1.2              # term-frequency saturation
     b: 0.75              # document-length normalization
+    # bodies with fewer words than this cannot judge similarity: blank or
+    # template-skeleton tickets otherwise match each other at 1.00
+    min_tokens: 15
+
+  # Text similarity and task type are SUPPORTING evidence only. A pair is
+  # surfaced only when a structural signal agrees: shared items, shared
+  # methods/quoted tokens, or shared steps. (Owner feedback 2026-07-19:
+  # blank and copy-pasted template tickets make pure-text matches
+  # meaningless.) The shared-item hard rule is unaffected.
+  require_structural_evidence: true
 
   # Classification bands on the final blended score. Deliberately high
   # defaults (precision over recall). Tune ONLY against labelled pairs via
