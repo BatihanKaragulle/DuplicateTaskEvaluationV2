@@ -26,6 +26,14 @@ class Ticket(BaseModel):
     id: str
     title: str
     description: str
+    # derived from the tree export's title columns: the ticket whose
+    # level-1 title row this ticket appeared under. A parent and its child
+    # often share near-identical titles -- they are related by STRUCTURE,
+    # not duplicates, and the pair is suppressed from suggestions.
+    parent_id: str | None = None
+    # work item IDs from the links column (Related Work), when the export
+    # has one. Already-linked pairs are suppressed -- the human knows.
+    linked_ids: list[str] = []
 
 
 class IngestIssue(BaseModel):
@@ -176,13 +184,38 @@ class _StrictModel(BaseModel):
 
 class ColumnMapping(_StrictModel):
     id: str
-    title: str
-    description: str
+    # one header or a list. ADO exports split the title across hierarchy
+    # columns ("Title1", "Title 2") -- the FIRST non-empty value wins.
+    title: str | list[str]
+    # one header or a list. All non-empty values are concatenated: both
+    # "Description" and "Repro Steps" carry extraction signal.
+    description: str | list[str]
+    # optional state column, needed only for exclude_states filtering
+    state: str | None = None
+    # optional column holding linked work item IDs (ADO "Related Work").
+    # null = no link data in the export (suppression simply never fires).
+    links: str | None = None
 
 
 class IngestSettings(_StrictModel):
     encoding: str = "utf-8-sig"  # ADO exports usually carry a UTF-8 BOM
     columns: ColumnMapping
+    # tickets whose state matches (case-insensitive) are skipped AND
+    # reported, e.g. ["Closed", "Removed"]. Empty = keep everything.
+    exclude_states: list[str] = []
+    # ADO tree exports encode hierarchy in the title columns: a row filling
+    # the FIRST title column is a parent; following rows filling a later
+    # title column are its children. When True, parent_id is derived from
+    # that row order.
+    hierarchy_from_title_columns: bool = True
+
+
+class CandidateSettings(_StrictModel):
+    """Known-relation suppression: pairs the tester already knows about
+    are not suggestions. Suppressed counts are reported on the console."""
+
+    suppress_parent_child: bool
+    suppress_already_linked: bool
 
 
 class IdKindSettings(_StrictModel):
@@ -364,6 +397,7 @@ class Settings(_StrictModel):
     config_version: int
     ingest: IngestSettings
     signals: SignalsSettings
+    candidates: CandidateSettings
     scoring: ScoringSettings
     report: ReportSettings
 

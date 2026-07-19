@@ -336,17 +336,27 @@ def _parse_tokens(text: str) -> tuple[list[str], list[str], list[str]]:
 def _classify_task_type(
     title: str, body: str, cfg: TaskTypeSettings
 ) -> tuple[TaskType, TaskTypeSource]:
-    """Two routes, in priority order; "unknown" whenever neither is sure.
+    """Three routes, in priority order; "unknown" whenever none is sure.
 
-    1. Explicit header at the START of the title ("[Refactor] fix login",
-       "(Investigation) menu behaviour", or a bare leading type word).
-    2. Keyword vote on title + body; only an unambiguous vote (exactly one
+    1. A type word inside ANY bracketed title tag. Testers stack tags --
+       "[IMP Refactor][REL: v.X] :", "[Refinement][v0.38.0][Refactor]" --
+       so the type bracket is often not the first one. A bracketed type
+       word is deliberate labeling wherever it sits.
+    2. A bare leading type word ("Refactor the login test").
+    3. Keyword vote on title + body; only an unambiguous vote (exactly one
        type hits) classifies -- never guess.
     Either way the result is soft context for scoring, never a separator.
     """
+    for content in re.findall(r"\[([^\]]{1,60})\]", title):
+        for task_type, aliases in cfg.title_headers.items():
+            for alias in aliases:
+                words = r"[\W_]+".join(re.escape(w) for w in alias.split())
+                if re.search(rf"\b{words}\b", content, re.IGNORECASE):
+                    return task_type, "title_header"  # type: ignore[return-value]
+
     for task_type, aliases in cfg.title_headers.items():
         for alias in aliases:
-            if re.match(rf"^\s*[\[\({{]?\s*{re.escape(alias)}\b", title, re.IGNORECASE):
+            if re.match(rf"^\s*[\({{]?\s*{re.escape(alias)}\b", title, re.IGNORECASE):
                 return task_type, "title_header"  # type: ignore[return-value]
 
     lowered = (title + "\n" + body).lower()

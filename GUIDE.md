@@ -34,21 +34,27 @@ pip install -e .[dev]
 
 **Input data: the CSV export.** Export your tasks from ADO as CSV. The
 file can live ANYWHERE on your machine -- you always pass its path
-explicitly via `--input`; nothing is picked up implicitly. The export must
-contain at least an ID, a title, and a description column. Their exact
-header names are mapped in `config.yaml`:
+explicitly via `--input`; nothing is picked up implicitly. The column
+headers of the export are mapped in `config.yaml`:
 
 ```yaml
 ingest:
   encoding: utf-8-sig     # ADO exports usually carry a UTF-8 BOM
   columns:
-    id: "ID"              # <- change these if your export uses
-    title: "Title"        #    different column headers
-    description: "Description"
+    id: "ID"
+    # a list = first non-empty wins (ADO splits titles across hierarchy
+    # columns in query exports)
+    title: ["Title1", "Title 2"]
+    # a list = all non-empty values concatenated; Repro Steps often
+    # carries the BDD steps, prime extraction material
+    description: ["Description", "Repro Steps"]
+    state: "State"        # optional; used only by exclude_states
+  exclude_states: []      # e.g. ["Closed", "Removed"] to skip those rows
 ```
 
 If the headers do not match, the tool fails immediately and tells you both
-what it expected and what it found. Extra columns in the CSV are ignored.
+what it expected and what it found. Extra columns in the CSV (Tags,
+Work Item Type, ...) are ignored until they get a mapping of their own.
 
 Practical tip: keep exports OUT of the repository (e.g. in a `samples/`
 folder, which is gitignored, or anywhere outside the project) -- ticket
@@ -155,7 +161,8 @@ silently fall back to a default.
 
 | Section | Controls |
 |---|---|
-| `ingest` | CSV encoding; column-header mapping (exports change; fix here, not in code) |
+| `ingest` | CSV encoding; column-header mapping incl. multi-column title/description and optional state/links columns; `exclude_states` filter; `hierarchy_from_title_columns` (tree-export parent derivation) |
+| `candidates` | known-relation suppression: `suppress_parent_child`, `suppress_already_linked` |
 | `signals.ids.kinds.<kind>` | per-kind regex patterns (text + URL) and section labels for `tms` / `trq` |
 | `signals.ids.shared_url_patterns` | the tracker link shape all kinds share (`/cb/issue/{number}`) |
 | `signals.ids.section_number_pattern` | bare numbers accepted on ID rows inside a labeled section (5-8 digits) |
@@ -246,9 +253,19 @@ Three `str -> str` functions composed by `clean_text()`:
     names both the expected and the found columns.
   - `dtype=str` + `keep_default_na=False`: IDs like "00123" stay strings,
     empty cells become "" (never NaN).
+  - Multi-column mapping: title = first non-empty of the listed columns,
+    description = all non-empty listed columns concatenated (Repro Steps
+    rides along with Description into extraction).
+  - Hierarchy: with `hierarchy_from_title_columns`, a row filling the
+    level-1 title column becomes the current parent; rows below it filling
+    a later title column get `parent_id` set to it (ADO tree export
+    convention). Parent-child pairs are suppressed in candidates.
+  - Links: when `columns.links` names a column, ID-looking tokens in it
+    become `Ticket.linked_ids` (used for already-linked suppression).
   - Row rules: empty ID -> skipped AND reported with its CSV row number;
-    duplicate ID -> first occurrence kept, later ones reported; empty
-    title/description -> ticket kept AND flagged. Nothing silent.
+    duplicate ID -> first occurrence kept, later ones reported; state in
+    `exclude_states` -> skipped AND reported; empty title/description ->
+    ticket kept AND flagged. Nothing silent.
 - `load_labelled_pairs(csv_path) -> list[LabelledPair]`
   - Strict where ticket ingest is lenient: bad relationship value,
     self-pair, or repeated pair RAISES. These labels referee all tuning;
@@ -333,13 +350,25 @@ Two routes, in priority order, result recorded in `task_type_source`:
 Task types are soft context (owner rule): scoring gives same-type only a
 small boost and NEVER excludes a cross-type pair.
 
-## 10. candidates.py -- pair generation
+## 10. candidates.py -- pair generation and known-relation suppression
 
 `generate_pairs(signals)` returns every unique unordered pair. Full
 pairwise is fine at current sizes; the module boundary exists so a
 blocking strategy can replace the internals without touching scoring.
 Documented constraint for that future: blocking MUST keep every pair that
 shares an item (the hard rule).
+
+`suppress_known_pairs(pairs, tickets, settings)` drops pairs the tester
+already knows about, returning (kept, counts):
+
+- **parent-child** -- a User Story and its child task often share
+  near-identical titles; they are related by structure, not duplicates.
+  Parentage comes from the tree export's title columns (see ingest).
+- **already-linked** -- pairs connected via ADO Related Work links, when
+  the export carries a links column.
+
+Counts are printed on the console, never silently swallowed. Both rules
+can be turned off in config (`candidates.suppress_*`).
 
 ## 11. scoring.py -- deterministic scoring with evidence
 

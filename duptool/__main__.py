@@ -13,7 +13,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from duptool.candidates import generate_pairs
+from duptool.candidates import generate_pairs, suppress_known_pairs
 from duptool.ingest import load_labelled_pairs, load_tickets
 from duptool.models import EvalMetrics, LabelledPair, ScoredPair, Settings, Ticket, load_settings
 from duptool.report import shown_pairs, write_reports
@@ -29,13 +29,25 @@ _LABELS = ["duplicate", "related", "unrelated"]
 
 
 def _score_all(tickets: list[Ticket], settings: Settings) -> list[ScoredPair]:
-    """The pipeline core shared by run and eval: signals -> pairs -> scores."""
+    """The pipeline core shared by run and eval: signals -> pairs -> scores.
+
+    Known-related pairs (parent-child from the tree export, already-linked
+    work items) are suppressed before scoring, with counts on the console.
+    """
     signals = [extract_signals(t, settings.signals) for t in tickets]
     index = LexicalIndex(signals, settings.scoring.lexical)
     by_id = {s.ticket_id: s for s in signals}
+    pairs, suppressed = suppress_known_pairs(
+        generate_pairs(signals), tickets, settings.candidates
+    )
+    if any(suppressed.values()):
+        print(
+            f"suppressed known-related pairs: {suppressed['parent_child']} "
+            f"parent-child, {suppressed['already_linked']} already-linked"
+        )
     return [
         score_pair(by_id[p.ticket_a], by_id[p.ticket_b], settings.scoring, index)
-        for p in generate_pairs(signals)
+        for p in pairs
     ]
 
 

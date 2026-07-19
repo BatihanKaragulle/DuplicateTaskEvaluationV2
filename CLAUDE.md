@@ -41,6 +41,12 @@ The tool **only produces results**. It never writes back to ADO, never merges, l
 - **Task types are soft context, not separators** (owner, 2026-07-15): an Investigation ticket can still duplicate or relate to a Refactor or Implementation ticket, and vice versa. Scoring treats type as weak evidence — same type adds a little confidence, cross-type gets mild partial credit, and type must never exclude a pair.
 - Two tickets of the same type touching the same TMS/TRQ are the strongest duplicate signal. Cross-type pairs touching the same TMS are more likely **related** than duplicate (e.g. an implementation task and a refactor task on the same test case).
 
+### Ticket hierarchy (owner, 2026-07-19)
+- Work items form a **User Story → Task parent-child hierarchy**. A Story and its child task often share near-identical titles (e.g. both called "Implement FDD Steps") — they are related by **structure, not duplicates**, and must never be suggested as a pair.
+- ADO **tree exports encode the hierarchy in the title columns**: a row filling the level-1 title column ("Title1") is the parent; the rows below it filling only the level-2 column ("Title 2") are its children. Ingest derives `parent_id` from this row order (config: `ingest.hierarchy_from_title_columns`).
+- **Known-relation suppression** (`candidates.suppress_*`): parent-child pairs and pairs already linked in ADO (Related Work, when the export carries a links column — `ingest.columns.links`) are removed from the candidate set before scoring. Suppressed counts are printed, never silent.
+- All hierarchy levels are still compared with each other otherwise (owner decision: a task can duplicate an unrelated story) — only structurally-known relations are suppressed.
+
 ### Identifiers — the highest-value signal
 - Tickets reference **TMS** items (test cases) and **TRQ** items (requirements). These appear:
   - as **links/URLs in the description** (extract the ID out of the URL — two different-looking links pointing at the same TMS are the same reference), or

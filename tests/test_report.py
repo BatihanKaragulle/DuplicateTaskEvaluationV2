@@ -48,6 +48,54 @@ def test_all_unique_pairs_no_self_pairs():
     assert len(set((p.ticket_a, p.ticket_b) for p in pairs)) == 6
 
 
+CANDIDATES = load_settings(REPO_ROOT / "config.yaml").candidates
+
+
+def test_parent_child_pairs_are_suppressed_with_count():
+    from duptool.candidates import suppress_known_pairs
+    from duptool.models import CandidatePair
+    tickets = [
+        Ticket(id="US-1", title="Implement FDD Steps", description=""),
+        Ticket(id="T-2", title="Implement FDD Steps", description="", parent_id="US-1"),
+        Ticket(id="T-3", title="other work", description=""),
+    ]
+    pairs = [CandidatePair(ticket_a="US-1", ticket_b="T-2"),
+             CandidatePair(ticket_a="US-1", ticket_b="T-3"),
+             CandidatePair(ticket_a="T-2", ticket_b="T-3")]
+    kept, counts = suppress_known_pairs(pairs, tickets, CANDIDATES)
+    assert counts == {"parent_child": 1, "already_linked": 0}
+    assert [(p.ticket_a, p.ticket_b) for p in kept] == [("US-1", "T-3"), ("T-2", "T-3")]
+
+
+def test_already_linked_pairs_are_suppressed():
+    from duptool.candidates import suppress_known_pairs
+    from duptool.models import CandidatePair
+    tickets = [
+        Ticket(id="T-1", title="a", description="", linked_ids=["T-2"]),
+        Ticket(id="T-2", title="b", description=""),
+    ]
+    kept, counts = suppress_known_pairs(
+        [CandidatePair(ticket_a="T-1", ticket_b="T-2")], tickets, CANDIDATES
+    )
+    assert kept == [] and counts["already_linked"] == 1
+
+
+def test_suppression_can_be_disabled_by_config():
+    from duptool.candidates import suppress_known_pairs
+    from duptool.models import CandidatePair
+    settings = CANDIDATES.model_copy(
+        update={"suppress_parent_child": False, "suppress_already_linked": False}
+    )
+    tickets = [
+        Ticket(id="US-1", title="story", description=""),
+        Ticket(id="T-2", title="task", description="", parent_id="US-1"),
+    ]
+    kept, counts = suppress_known_pairs(
+        [CandidatePair(ticket_a="US-1", ticket_b="T-2")], tickets, settings
+    )
+    assert len(kept) == 1 and counts == {"parent_child": 0, "already_linked": 0}
+
+
 # --- ranking / shown_pairs --------------------------------------------------------
 
 
@@ -147,6 +195,9 @@ def test_run_command_end_to_end(tmp_path, capsys):
     assert "both reference TMS-48213" in text
 
     console = capsys.readouterr().out
-    assert "loaded 3 tickets" in console
+    assert "loaded 4 tickets" in console
     # fixture TASK-103 has an empty description -> reported, ticket kept
     assert "TASK-103" in console and "empty description" in console
+    # TASK-104 is TASK-103's child (same title!) -> suppressed, not suggested
+    assert "suppressed known-related pairs: 1 parent-child" in console
+    assert "TASK-104" not in (out_dir / "summary.txt").read_text(encoding="utf-8")

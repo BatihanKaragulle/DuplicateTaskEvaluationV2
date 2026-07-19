@@ -117,6 +117,28 @@ def test_comma_separated_number_list_after_label():
     assert labels(s) == ["TMS-1234567", "TMS-2345678", "TMS-3456789"]
 
 
+def test_tms_id_label_with_word_id_between():
+    # real-world form: "TMS ID: 6627195" mid-sentence
+    s = sig("Check if the implementation matches figma. TMS ID: 6627195")
+    assert labels(s) == ["TMS-6627195"]
+
+
+def test_tms_id_list_line_harvests_all_numbers():
+    # real-world form: a bullet line "TMS ID List: n, n, n" (nbsp-separated
+    # in the raw HTML; cleaned to spaces before extraction)
+    s = sig(
+        "## Affected TMS IDs\n"
+        "TMS ID List: 6996741, 6996742, 6996743, 7078688\n"
+    )
+    assert labels(s) == ["TMS-6996741", "TMS-6996742", "TMS-6996743", "TMS-7078688"]
+    assert ref(s, "6996742").source == "template_section"
+
+
+def test_trq_list_line_harvests_all_numbers():
+    s = sig("TRQ List: 4728281, 4744549, 4728956")
+    assert labels(s) == ["TRQ-4728281", "TRQ-4728956", "TRQ-4744549"]
+
+
 def test_id_table_rows_are_harvested():
     s = sig(
         "TMS Action summary\n"
@@ -273,6 +295,23 @@ def test_bracketed_title_header_is_the_strongest_type_signal():
         assert s.task_type_source == "title_header"
 
 
+def test_type_word_in_any_stacked_bracket_classifies():
+    # real-world titles stack bracket tags; the type is rarely the first one
+    for title, expected in (
+        ("[Refinement][v0.38.0][Refactor] UI Mismatch: teaching vs Figma", "refactor"),
+        ("[IMP Refactor][REL: v.X Unknown] : Refactorization of the step", "refactor"),
+        ("[Refinement][v0.38.1][Investigation] flaky wait step", "investigation"),
+    ):
+        s = sig("neutral body text", title=title)
+        assert s.task_type == expected, title
+        assert s.task_type_source == "title_header"
+
+
+def test_non_type_brackets_do_not_classify():
+    s = sig("neutral body text", title="[Refinement][v0.38.1] some cleanup work")
+    assert s.task_type_source != "title_header"
+
+
 def test_title_header_beats_conflicting_body_keywords():
     s = sig("update the flow and implement new checks", title="[Investigation] flaky step")
     assert s.task_type == "investigation"
@@ -420,12 +459,11 @@ def test_empty_description_yields_valid_empty_signals():
 
 def test_fixture_tickets_extract_end_to_end():
     from duptool.ingest import load_tickets
-    from duptool.models import ColumnMapping, IngestSettings
 
-    settings = IngestSettings(
-        columns=ColumnMapping(id="ID", title="Title", description="Description"),
+    ingest_settings = load_settings(REPO_ROOT / "config.yaml").ingest
+    result = load_tickets(
+        Path(__file__).parent / "fixtures" / "sample_tickets.csv", ingest_settings
     )
-    result = load_tickets(Path(__file__).parent / "fixtures" / "sample_tickets.csv", settings)
     by_id = {t.id: extract_signals(t, SIG) for t in result.tickets}
 
     # templated ticket: IDs from link and section text, both most-trusted

@@ -11,10 +11,39 @@ ingest:
   encoding: utf-8-sig
   # Map duptool's ticket fields to the CSV's column headers. Exports change;
   # when the column names change, fix them here, not in code.
+  # Real export columns (owner, 2026-07-19): ID, State, Work Item Type,
+  # Title1, Title 2, Tags, Repro Steps, Description. "Tags" and
+  # "Work Item Type" are not used yet -- when needed, they get their own
+  # mapping entries here plus an owner-approved signal.
+  # Real export header (2026-07-19): ID, Work Item Type, Title 1, Title 2,
+  # State, Tags, Related Item, Description, Repro Steps, Parent or Child.
+  # "Parent or Child" stays unmapped until a filled cell shows its format;
+  # hierarchy is derived from the title columns' row order meanwhile.
   columns:
     id: "ID"
-    title: "Title"
-    description: "Description"
+    # first non-empty wins; the ORDER is the tree level ("Title 1" = User
+    # Story / parent row, "Title 2" = its child tasks below it)
+    title: ["Title 1", "Title 2"]
+    # all non-empty are concatenated: Repro Steps often carries the BDD
+    # steps -- prime extraction material
+    description: ["Description", "Repro Steps"]
+    state: "State"
+    # linked work item IDs (ADO Related Work). Empty cells are fine --
+    # suppression fires only when IDs appear here.
+    links: "Related Item"
+  # Skip tickets in these states (reported, never silent). Empty = keep all.
+  # Consider ["Closed", "Removed"] once confirmed against a real export.
+  exclude_states: []
+  # Derive parent-child relations from the tree export's title columns
+  # (row order: a level-1 row is the parent of the level-2 rows below it).
+  hierarchy_from_title_columns: true
+
+candidates:
+  # Pairs the tester already knows about are not suggestions (owner,
+  # 2026-07-19): a User Story and its child task often share near-identical
+  # titles -- parent-child, NOT duplicates. Suppressed counts are printed.
+  suppress_parent_child: true
+  suppress_already_linked: true
 
 signals:
   # --- Tracker item references (the highest-value signal) -------------------
@@ -27,7 +56,8 @@ signals:
       tms:
         text_patterns:
           # TMS-48213, TMS 48213, tms48213, TMS_48213, tms:48213, TMS - 48213
-          - '(?i)\btms[\s\-_:#\.]*(\d{1,8})\b'
+          # and labeled forms: "TMS ID: 6627195", "TMS ID List: 6996741"
+          - '(?i)\btms(?:[\s\-_:#\.]+(?:ids?|list)\b)*[\s\-_:#\.]*(\d{1,8})\b'
         url_patterns:
           # URLs that name the kind themselves (rare; most links are shared shape)
           - '(?i)tms[^\s<>]*[/=](\d{1,8})\b'
@@ -35,18 +65,24 @@ signals:
           - "affected tms ids"
           - "affected tms id"
           - "affected tms"
+          - "tms id list"
+          - "tms ids list"
+          - "tms list"
           - "tms ids"
           - "tms id"
           - "tms"
       trq:
         text_patterns:
-          - '(?i)\btrq[\s\-_:#\.]*(\d{1,8})\b'
+          - '(?i)\btrq(?:[\s\-_:#\.]+(?:ids?|list)\b)*[\s\-_:#\.]*(\d{1,8})\b'
         url_patterns:
           - '(?i)trq[^\s<>]*[/=](\d{1,8})\b'
         section_labels:
           - "affected trqs"
           - "affected trq ids"
           - "affected trq"
+          - "trq id list"
+          - "trq ids list"
+          - "trq list"
           - "trq ids"
           - "trqs"
           - "trq"

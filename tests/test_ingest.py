@@ -15,9 +15,13 @@ from duptool.models import ColumnMapping, IngestSettings, load_settings
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).parents[1]
 
+# simple single-column mapping for the tmp-CSV edge-case tests
 SETTINGS = IngestSettings(
     columns=ColumnMapping(id="ID", title="Title", description="Description"),
 )
+# the fixture CSV mirrors the REAL export shape and is read with the
+# repo config, so config and fixture can never drift apart
+FIXTURE_SETTINGS = load_settings(REPO_ROOT / "config.yaml").ingest
 
 
 def write_csv(tmp_path: Path, text: str) -> Path:
@@ -46,23 +50,80 @@ def test_config_with_unknown_key_fails_loudly(tmp_path):
 
 
 def test_happy_path_reads_all_fixture_rows():
-    result = load_tickets(FIXTURES / "sample_tickets.csv", SETTINGS)
-    assert [t.id for t in result.tickets] == ["TASK-101", "TASK-102", "TASK-103"]
-    # TASK-103 has an empty description: kept, but flagged.
+    result = load_tickets(FIXTURES / "sample_tickets.csv", FIXTURE_SETTINGS)
+    assert [t.id for t in result.tickets] == ["TASK-101", "TASK-102", "TASK-103", "TASK-104"]
+    # TASK-103 has no text in any description column: kept, but flagged.
     flagged = [i for i in result.issues if i.ticket_id == "TASK-103"]
     assert len(flagged) == 1 and not flagged[0].skipped
 
 
-def test_multiline_quoted_description_survives():
-    result = load_tickets(FIXTURES / "sample_tickets.csv", SETTINGS)
+def test_title_taken_from_first_nonempty_title_column():
+    # TASK-101 fills "Title1", TASK-104 fills "Title 2" (ADO tree export)
+    result = load_tickets(FIXTURES / "sample_tickets.csv", FIXTURE_SETTINGS)
+    by_id = {t.id: t for t in result.tickets}
+    assert by_id["TASK-101"].title == "Add expiry date checks to checkout tests"
+    assert by_id["TASK-104"].title == "Smoke test placeholder"
+
+
+def test_child_rows_get_the_preceding_level1_row_as_parent():
+    # TASK-104 (Title 2 filled) sits below TASK-103 (Title1 filled): a User
+    # Story and its child task -- near-identical titles, NOT duplicates.
+    result = load_tickets(FIXTURES / "sample_tickets.csv", FIXTURE_SETTINGS)
+    by_id = {t.id: t for t in result.tickets}
+    assert by_id["TASK-104"].parent_id == "TASK-103"
+    assert by_id["TASK-103"].parent_id is None
+    assert by_id["TASK-101"].parent_id is None
+
+
+def test_hierarchy_derivation_can_be_disabled():
+    settings = FIXTURE_SETTINGS.model_copy(update={"hierarchy_from_title_columns": False})
+    result = load_tickets(FIXTURES / "sample_tickets.csv", settings)
+    assert all(t.parent_id is None for t in result.tickets)
+
+
+def test_links_column_is_parsed_into_linked_ids(tmp_path):
+    path = write_csv(
+        tmp_path,
+        "ID,Title 1,Title 2,State,Repro Steps,Description,Related Item\n"
+        'T-1,a,,Active,,x,"T-2; 1234567"\n'
+        "T-2,b,,Active,,y,\n",
+    )
+    result = load_tickets(path, FIXTURE_SETTINGS)
+    assert result.tickets[0].linked_ids == ["1234567", "T-2"]
+    assert result.tickets[1].linked_ids == []
+
+
+def test_repro_steps_column_feeds_the_description():
+    # TASK-102's text lives in "Repro Steps", not "Description"
+    result = load_tickets(FIXTURES / "sample_tickets.csv", FIXTURE_SETTINGS)
     task_102 = next(t for t in result.tickets if t.id == "TASK-102")
     assert "left menu moved" in task_102.description
     assert "TRQ-1042" in task_102.description  # text after the embedded newline
 
 
+def test_all_text_columns_are_concatenated(tmp_path):
+    path = write_csv(
+        tmp_path,
+        "ID,Title 1,Title 2,State,Related Item,Repro Steps,Description\n"
+        'T-1,both,,Active,,steps text here,"main description"\n',
+    )
+    result = load_tickets(path, FIXTURE_SETTINGS)
+    desc = result.tickets[0].description
+    assert "main description" in desc and "steps text here" in desc
+
+
+def test_state_filter_skips_and_reports(tmp_path):
+    settings = FIXTURE_SETTINGS.model_copy(update={"exclude_states": ["Closed"]})
+    result = load_tickets(FIXTURES / "sample_tickets.csv", settings)
+    assert [t.id for t in result.tickets] == ["TASK-101", "TASK-102", "TASK-104"]
+    skipped = [i for i in result.issues if i.skipped]
+    assert len(skipped) == 1 and skipped[0].ticket_id == "TASK-103"
+    assert "Closed" in skipped[0].problem
+
+
 def test_description_html_is_kept_raw_at_ingest():
     # Cleaning happens later in the pipeline; ingest must not touch content.
-    result = load_tickets(FIXTURES / "sample_tickets.csv", SETTINGS)
+    result = load_tickets(FIXTURES / "sample_tickets.csv", FIXTURE_SETTINGS)
     task_101 = next(t for t in result.tickets if t.id == "TASK-101")
     assert "<div>" in task_101.description
 

@@ -1,5 +1,6 @@
-ID,Title,Description
-TASK-101,Add expiry date checks to checkout tests,"<div>What needs to be done?</div><div>Add steps validating the expiry date field.</div><div>Affected TMS IDs</div><div><a href=""https://tms.example.local/case/48213"">TMS case</a></div><div>Affected TRQs</div><div>TRQ-1042</div>"
-TASK-102,Update login test after menu change,"Refactor TMS 48213 - the left menu moved to the top bar.
-See also TRQ-1042 for the requirement."
-TASK-103,Smoke test placeholder,
+ID,Work Item Type,Title 1,Title 2,State,Tags,Related Item,Description,Repro Steps,Parent or Child
+TASK-101,Task,Add expiry date checks to checkout tests,,Active,expiry;checkout,,"<div>What needs to be done?</div><div>Add steps validating the expiry date field.</div><div>Affected TMS IDs</div><div><a href=""https://tms.example.local/case/48213"">TMS case</a></div><div>Affected TRQs</div><div>TRQ-1042</div>",,
+TASK-102,Task,Update login test after menu change,,Active,,,,"Refactor TMS 48213 - the left menu moved to the top bar.
+See also TRQ-1042 for the requirement.",
+TASK-103,User Story,Smoke test placeholder,,Closed,,,,,
+TASK-104,Task,,Smoke test placeholder,Active,,,Cover the smoke placeholder checks in more detail for the release.,,
